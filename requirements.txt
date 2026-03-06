@@ -1,0 +1,12 @@
+yfinance
+pandas
+streamlit
+plotly
+requests
+beautifulsoup4
+numpy
+streamlit-autorefresh
+scipy
+python-dotenv
+pyotp
+git+https://github.com/TradelabTechnologiesIndia/pyoauthbridge.git
