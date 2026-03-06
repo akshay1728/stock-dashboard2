@@ -3,6 +3,9 @@ import threading
 import webbrowser
 from requests_oauthlib import OAuth2Session
 from flask import Flask, request, redirect
+import logging
+
+logger = logging.getLogger("stocko.server")
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
 class Server:
@@ -42,15 +45,15 @@ class Server:
         @app.route('/')
         def callback():
             try:
-                print(f"Inside callback function. URL: {request.url}")
+                logger.info(f"Inside callback function. URL: {request.url}")
                 oauth = OAuth2Session(client_id, state=self.state, redirect_uri=redirect_uri, scope=scope)
                 token = oauth.fetch_token(token_url, authorization_response=request.url, client_secret=client_secret)
 
                 self.access_token = token['access_token']
-                print("Access token acquired!")
+                logger.info("Access token acquired successfully!")
                 return 'see terminal for logs - SUCCESS'
             except Exception as e:
-                print(f"Error in callback: {e}")
+                logger.error(f"Error in callback: {e}")
                 return f'see terminal for logs - ERROR: {e}'
 
         return app

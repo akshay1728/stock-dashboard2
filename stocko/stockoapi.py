@@ -955,6 +955,16 @@ class AlphaTrade(Connect):
         data = json.dumps({'a': 'unsubscribe', 'v': arr, 'm': mode})
         return self.__ws_send(data)
 
+    def set_access_token(self, access_token):
+        """Sets the access token and updates authorization headers."""
+        super().set_access_token(access_token)
+        self.__access_token = access_token
+        self.__headers['Authorization'] = f'Bearer {access_token}'
+
+    @property
+    def access_token(self):
+        return self.__access_token
+
     def get_all_subscriptions(self):
         """ get the all subscribed instruments """
         return self.__subscribers
@@ -1120,7 +1130,9 @@ class AlphaTrade(Connect):
     def __api_call_helper(self, name, http_method, params, data):
         # helper formats the url and reads error codes nicely
         config = self.__service_config
-        url = f"{config['host']}{config['routes'][name]}"
+        # Use base_url from Connect if available, otherwise fallback to host from config
+        host = getattr(self, 'base_url', config['host'])
+        url = f"{host}{config['routes'][name]}"
         if params is not None:
             url = url.format(**params)
         response = self.__api_call(url, http_method, data)
@@ -1168,8 +1180,9 @@ class AlphaTrade(Connect):
         'starttime': start_time,
         'endtime': end_time,
         }
+        host = getattr(self, 'base_url', 'https://web.stocko.in')
         r = requests.get(
-            'https://web.stocko.in/api/v1/charts/tdv', params=params_tv, headers=self.__headers)
+            f'{host}/api/v1/charts/tdv', params=params_tv, headers=self.__headers)
         data = r.json()
         return self.__format_candles(data, divider) #
 
@@ -1209,6 +1222,10 @@ class AlphaTrade(Connect):
     def check_masters(self):
         ############ downloading instrument file if yesterdays
         file_path = './stocko/instruments/stocko_instruments.csv'
+        # Fix for potential case sensitivity issues in file system
+        if not os.path.exists(file_path) and os.path.exists('./stocko/instruments/Stocko_instruments.csv'):
+            file_path = './stocko/instruments/Stocko_instruments.csv'
+
         # Get the current date
         current_date = datetime.now().date()
         # Check if the file exists
@@ -1229,9 +1246,9 @@ class AlphaTrade(Connect):
     def download_master(self):
         url = "https://web.stocko.in/api/v1/contract/Compact?info=download"
         destination_folder = Path("./stocko/instruments"  )
-        zip_file_name = "Stocko_instruments.zip"
+        zip_file_name = "stocko_instruments.zip"
         zip_file_path = destination_folder/zip_file_name
-        renamed_csv_file_name = "Stocko_instruments.csv"
+        renamed_csv_file_name = "stocko_instruments.csv"
         renamed_csv_file_path = destination_folder/renamed_csv_file_name
 
         destination_folder.mkdir(parents=True, exist_ok=True)

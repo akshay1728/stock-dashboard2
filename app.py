@@ -50,27 +50,30 @@ def login_dialog():
             st.session_state.authenticated = False
             success = auth.login()
             if success:
-                st.success("Authenticated successfully!")
                 st.session_state.authenticated = True
+                st.success("Authenticated successfully!")
                 st.cache_data.clear()
-                time.sleep(1)
+                # Use a slightly longer sleep to ensure user sees success message
+                time.sleep(1.5)
                 st.rerun()
             else:
-                st.error("Authentication failed. Please verify your credentials and TOTP Secret in the settings.")
+                st.error("Authentication failed. Please check console logs and verify your credentials.")
 
 # Initialize Authentication State
 if 'authenticated' not in st.session_state:
     # Check if token already exists
     if os.path.exists("stocko_token.json"):
-        # We can try to validate it or just assume authenticated for UI
-        # For robustness, we check it
         auth = StockoAuth()
         if auth._load_cached_token():
+            logger.info("Session Init: Found cached token.")
             st.session_state.authenticated = True
         else:
             st.session_state.authenticated = False
     else:
         st.session_state.authenticated = False
+
+# Debug: Log current auth state in console
+logger.debug(f"Current session auth state: {st.session_state.authenticated}")
 
 # Global CSS
 st.markdown("""
