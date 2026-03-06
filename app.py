@@ -40,26 +40,23 @@ DB_NAME = 'breadth_data.db'
 
 @st.dialog("Stocko API Login")
 def login_dialog():
-    st.write("### 🌐 Browser Authentication")
-    st.write("To authenticate with Stocko, we will open a new browser window.")
-    st.info("Please log in on the Stocko website and enter your TOTP there if requested.")
+    st.write("### 🤖 Automated Authentication")
+    st.write("The dashboard will now use the credentials provided in the settings to log in automatically.")
+    st.info("Ensure Client Code, Password, and TOTP Secret are correctly configured.")
 
-    if st.button("🚀 Start Browser Login"):
+    if st.button("🚀 Start Automated Login"):
         auth = StockoAuth()
-        # We run the blocking login in a thread to keep the UI alive if possible,
-        # but since it's a dialog, we'll just show a spinner.
-        with st.spinner("Waiting for browser authentication..."):
-            # Ensure we're using a fresh instance and clear state
+        with st.spinner("Authenticating with Stocko API..."):
             st.session_state.authenticated = False
             success = auth.login()
             if success:
                 st.success("Authenticated successfully!")
                 st.session_state.authenticated = True
-                st.cache_data.clear() # Clear cached data on new auth
+                st.cache_data.clear()
                 time.sleep(1)
                 st.rerun()
             else:
-                st.error("Authentication failed or timed out. Check if browser opened and credentials were correct.")
+                st.error("Authentication failed. Please verify your credentials and TOTP Secret in the settings.")
 
 # Initialize Authentication State
 if 'authenticated' not in st.session_state:
@@ -906,9 +903,10 @@ elif page == "⚙️ Settings":
             api_secret = st.text_input("API Secret", value=Config.API_SECRET or "", type="password")
             client_code = st.text_input("Client Code", value=Config.CLIENT_CODE or "")
         with col2:
-            redirect_url = st.text_input("Redirect URL", value=Config.REDIRECT_URL or "http://127.0.0.1:5000")
-            base_url = st.text_input("Base URL", value=Config.BASE_URL or "https://primusapi.tradelab.in")
+            totp_secret = st.text_input("TOTP Secret (2FA Key)", value=Config.TOTP_SECRET or "", type="password")
+            base_url = st.text_input("Base URL", value=Config.BASE_URL or "https://api.stocko.in")
             password = st.text_input("Stocko Password", value=Config.PASSWORD or "", type="password")
+            redirect_url = st.text_input("Redirect URL", value=Config.REDIRECT_URL or "http://127.0.0.1/")
 
         if st.button("Save API Configuration"):
             # Sanitize inputs before saving
@@ -918,7 +916,8 @@ elif page == "⚙️ Settings":
                 "REDIRECT_URL": redirect_url.strip(),
                 "BASE_URL": base_url.strip().rstrip('/'),
                 "CLIENT_CODE": client_code.strip(),
-                "PASSWORD": password # Don't strip password as spaces might be intended
+                "PASSWORD": password, # Don't strip password as spaces might be intended
+                "TOTP_SECRET": totp_secret.strip()
             })
             st.success("API configuration saved to database!")
             st.rerun()

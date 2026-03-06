@@ -3,3 +3,6 @@
 __pycache__/
 .streamlit/
 verification/
+stocko/instruments/*.zip
+stocko/instruments/*.csv
+stocko/token.json
