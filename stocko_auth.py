@@ -44,6 +44,8 @@ class StockoAuth:
                         password=self.password,
                         totp=self.totp_secret,
                         client_secret=self.client_secret,
+                        client_id=self.client_id,
+                        redirect_url=self.redirect_url,
                         access_token=self.access_token,
                         master_contracts_to_download=['NSE', 'NFO']
                     )
@@ -61,6 +63,8 @@ class StockoAuth:
                 password=self.password,
                 totp=self.totp_secret,
                 client_secret=self.client_secret,
+                client_id=self.client_id,
+                redirect_url=self.redirect_url,
                 master_contracts_to_download=['NSE', 'NFO']
             )
 

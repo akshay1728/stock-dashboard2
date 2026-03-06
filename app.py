@@ -906,7 +906,7 @@ elif page == "⚙️ Settings":
             totp_secret = st.text_input("TOTP Secret (2FA Key)", value=Config.TOTP_SECRET or "", type="password")
             base_url = st.text_input("Base URL", value=Config.BASE_URL or "https://api.stocko.in")
             password = st.text_input("Stocko Password", value=Config.PASSWORD or "", type="password")
-            redirect_url = st.text_input("Redirect URL", value=Config.REDIRECT_URL or "http://127.0.0.1/")
+            redirect_url = st.text_input("Redirect URL", value=Config.REDIRECT_URL or "http://127.0.0.1:65015/")
 
         if st.button("Save API Configuration"):
             # Sanitize inputs before saving

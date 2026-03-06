@@ -208,8 +208,10 @@ class AlphaTrade(Connect):
     _data_duration = {1: 1, 2: 2, 3: 3, 5: 5, 10: 10, 15: 15,
                       30: 30, 45: 45, '1H': None, '2H': 2, '3H': 2, '4H': 2, '1D': None, 'D': None, 'W': None, 'M': None}
 
-    def __init__(self, login_id, password, totp, client_secret, access_token=None, master_contracts_to_download=None):
-        super().__init__( "SAS-CLIENT1", client_secret, "http://127.0.0.1/" , "https://api.stocko.in", login_id, password, totp)
+    def __init__(self, login_id, password, totp, client_secret, client_id=None, redirect_url=None, access_token=None, master_contracts_to_download=None):
+        client_id = client_id or "SAS-CLIENT1"
+        redirect_url = redirect_url or "http://127.0.0.1:65015/"
+        super().__init__( client_id, client_secret, redirect_url , "https://api.stocko.in", login_id, password, totp)
         """ logs in and gets enabled exchanges and products for user """
         self.__access_token = access_token
         self.__login_id = login_id
@@ -257,19 +259,31 @@ class AlphaTrade(Connect):
         [ self.__get_master_contract(e) for e in master_contracts_to_download ]
 
     def __set_access_token(self):
+        if self.__access_token:
+            self.__headers['Authorization'] = f'Bearer {self.__access_token}'
+            try:
+                profile = self.get_profile()
+                if profile.get('status') == 'success':
+                    return
+            except: pass
+
         try:
             script_dir = os.path.dirname(os.path.abspath(__file__))
             token_file_path = os.path.join(script_dir, 'token.json')
-            with open(token_file_path, 'r') as f:
-                data = json.load(f)
-                self.__access_token = data['access_token']
-                self.__headers['Authorization'] = f'Bearer {self.__access_token}'
-                profile = self.get_profile()
+            if os.path.exists(token_file_path):
+                with open(token_file_path, 'r') as f:
+                    data = json.load(f)
+                    self.__access_token = data['access_token']
+                    self.__headers['Authorization'] = f'Bearer {self.__access_token}'
+                    profile = self.get_profile()
+                    if profile.get('status') == 'success':
+                        return
         except:
-            print(f"Couldn't get profile info ")
-            print(f"Creating fresh token..")
-            self.__access_token = super().get_access_token('true')
-            self.__headers['Authorization'] = f'Bearer {self.__access_token}'
+            pass
+
+        print(f"No valid cached token found. Creating fresh token via automated login...")
+        self.__access_token = super().get_access_token(auto_login='true')
+        self.__headers['Authorization'] = f'Bearer {self.__access_token}'
 
         try:
             profile = self.get_profile()

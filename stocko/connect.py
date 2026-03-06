@@ -23,8 +23,11 @@ class Connect:
         self.username = username
         self.password = password
         self.totp_secret = totp_secret
-        redirect_url_split = redirect_url.split(":")
-        self.port = 65015
+        from urllib.parse import urlparse
+        try:
+            self.port = urlparse(redirect_url).port or 80
+        except:
+            self.port = 80
         url = ""
         if "https" in base_url:
             url = base_url.replace("https", "wss")
@@ -49,7 +52,7 @@ class Connect:
 
         # Start selenium automation in a separate thread
         if auto_login:
-           selenium_thread = start_selenium_thread(self.username, self.password,self.totp_secret)
+           selenium_thread = start_selenium_thread(self.username, self.password,self.totp_secret, redirect_url)
 
         # Poll for token availability
         while True:
