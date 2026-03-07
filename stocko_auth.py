@@ -2,6 +2,7 @@ import os
 import time
 import logging
 import json
+from datetime import datetime
 from stocko import AlphaTrade
 from config import Config
 
@@ -111,8 +112,19 @@ class StockoAuth:
             try:
                 with open(self.TOKEN_CACHE, 'r') as f:
                     data = json.load(f)
-                    self.access_token = data.get("access_token")
-                    if self.access_token: return True
+
+                # New Day Check: Clear if from previous day
+                ts = data.get("timestamp")
+                if ts:
+                    cached_date = datetime.fromtimestamp(ts).date()
+                    if cached_date < datetime.now().date():
+                        logger.info("Auth: Cached token is from a previous day. Clearing...")
+                        os.remove(self.TOKEN_CACHE)
+                        if os.path.exists(self.LIB_TOKEN_CACHE): os.remove(self.LIB_TOKEN_CACHE)
+                        return False
+
+                self.access_token = data.get("access_token")
+                if self.access_token: return True
             except: pass
 
         # 2. Try library cache

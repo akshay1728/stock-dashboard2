@@ -965,6 +965,10 @@ class AlphaTrade(Connect):
     def access_token(self):
         return self.__access_token
 
+    @access_token.setter
+    def access_token(self, value):
+        self.set_access_token(value)
+
     def get_all_subscriptions(self):
         """ get the all subscribed instruments """
         return self.__subscribers
