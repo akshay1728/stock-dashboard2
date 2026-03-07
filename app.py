@@ -67,8 +67,8 @@ if 'authenticated' not in st.session_state:
     # Check if token already exists
     if os.path.exists("stocko_token.json"):
         auth = StockoAuth()
-        # Ensure we perform a live check on startup, not just a cache load
-        if auth._load_cached_token() and auth._validate_token():
+        # Fix: Ensure client is initialized from cached token before validating
+        if auth._load_cached_token() and auth._init_client(use_cached=True) and auth._validate_token():
             logger.info("Session Init: Found and validated cached token.")
             st.session_state.authenticated = True
         else:

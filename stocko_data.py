@@ -1,5 +1,6 @@
 import logging
 import pandas as pd
+import yfinance as yf
 from config import Config
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
@@ -31,11 +32,32 @@ class StockoData:
                 return None
 
             price_res = self.client.get_scrip_info(instrument)
-            if price_res.get("status") != "success":
+
+            # Flexible success check: handles both {"status": "success"} and {"error": {"code": 0}} formats
+            is_success = price_res.get("status") == "success" or \
+                         (isinstance(price_res.get("error"), dict) and price_res["error"].get("code") == 0)
+
+            if not is_success:
                 logger.error(f"Error fetching scrip info for {search_symbol}: {price_res}")
                 return None
 
             result = price_res.get("result", {})
+            ltp = result.get("ltp") or result.get("last_traded_price") or result.get("close_price") or 0
+            ltp = float(ltp)
+
+            # Fallback to yfinance if Stocko returns 0 (e.g. market closed or API issue)
+            if ltp <= 0:
+                logger.warning(f"Stocko returned 0 for {search_symbol}. Falling back to yfinance...")
+                try:
+                    yf_map = {"Nifty 50": "^NSEI", "Nifty Bank": "^NSEBANK", "Nifty Fin Service": "^CNXFIN"}
+                    ticker = yf_map.get(search_symbol)
+                    if ticker:
+                        data = yf.Ticker(ticker).fast_info
+                        ltp = data['last_price']
+                        logger.info(f"yfinance fallback success for {search_symbol}: {ltp}")
+                except Exception as yfe:
+                    logger.error(f"yfinance fallback failed: {yfe}")
+
             return {
                 "symbol": symbol,
                 "timestamp": pd.Timestamp.now(),
@@ -43,13 +65,13 @@ class StockoData:
                 "high": float(result.get("high") or 0),
                 "low": float(result.get("low") or 0),
                 "close": float(result.get("close") or 0),
-                "last_price": float(result.get("ltp") or result.get("last_traded_price") or 0)
+                "last_price": float(ltp)
             }
         except Exception as e:
             logger.error(f"Error fetching index data: {e}")
             return None
 
-    def fetch_option_chain(self, symbol="NIFTY", limit=30):
+    def fetch_option_chain(self, symbol="NIFTY", limit=30, spot_price=None):
         """
         Fetches the live option chain as per user's request (30 strikes near spot)
         and matches extractor logic in STOCKOmain.py
@@ -70,11 +92,12 @@ class StockoData:
                 logger.error(f"Stocko Data: Could not find instrument for {search_symbol}")
                 return []
 
-            spot_data = self.fetch_index_data(symbol)
-            spot_price = spot_data['last_price'] if spot_data else None
-
             if not spot_price:
-                logger.error("Could not get spot price to center option chain.")
+                spot_data = self.fetch_index_data(symbol)
+                spot_price = spot_data['last_price'] if spot_data else None
+
+            if not spot_price or spot_price <= 0:
+                logger.error(f"Could not get valid spot price to center option chain (Value: {spot_price}).")
                 return []
 
             # strikes parameter as used in STOCKOmain.py

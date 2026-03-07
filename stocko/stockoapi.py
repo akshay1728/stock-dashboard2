@@ -1275,6 +1275,6 @@ class AlphaTrade(Connect):
                 print("The downloaded file is not a valid zip file.")
 
             if bl_extracted:
-                zip_file_path.unlink
+                zip_file_path.unlink()
         else:
             print(f"Failed to download the file. HTTP Status Code: {response.status_code}")
