@@ -35,8 +35,11 @@ from options_strategy import OptionsStrategy
 from simulator_manager import SimulatorManager
 from stocko_auth import StockoAuth
 from config import Config
+from database import Database
 
 DB_NAME = 'breadth_data.db'
+# Ensure database tables exist on startup
+Database().init_db()
 
 @st.dialog("Stocko API Login")
 def login_dialog():
@@ -64,10 +67,12 @@ if 'authenticated' not in st.session_state:
     # Check if token already exists
     if os.path.exists("stocko_token.json"):
         auth = StockoAuth()
-        if auth._load_cached_token():
-            logger.info("Session Init: Found cached token.")
+        # Ensure we perform a live check on startup, not just a cache load
+        if auth._load_cached_token() and auth._validate_token():
+            logger.info("Session Init: Found and validated cached token.")
             st.session_state.authenticated = True
         else:
+            logger.info("Session Init: Cached token missing or invalid.")
             st.session_state.authenticated = False
     else:
         st.session_state.authenticated = False

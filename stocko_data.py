@@ -23,6 +23,7 @@ class StockoData:
             search_symbol = symbol
             if symbol == "NIFTY": search_symbol = "Nifty 50"
             elif symbol == "BANKNIFTY": search_symbol = "Nifty Bank"
+            elif symbol == "FINNIFTY": search_symbol = "Nifty Fin Service"
 
             instrument = self.client.get_instrument_by_symbol('NSE', search_symbol)
             if not instrument:
@@ -48,8 +49,11 @@ class StockoData:
             logger.error(f"Error fetching index data: {e}")
             return None
 
-    def fetch_option_chain(self, symbol="NIFTY", limit=600):
-        """Fetches the live option chain and populates detailed info for ATM strikes."""
+    def fetch_option_chain(self, symbol="NIFTY", limit=30):
+        """
+        Fetches the live option chain as per user's request (30 strikes near spot)
+        and matches extractor logic in STOCKOmain.py
+        """
         try:
             if not self.client:
                 logger.error("Stocko Data: Client not initialized.")
@@ -59,17 +63,12 @@ class StockoData:
             search_symbol = symbol
             if symbol == "NIFTY": search_symbol = "Nifty 50"
             elif symbol == "BANKNIFTY": search_symbol = "Nifty Bank"
+            elif symbol == "FINNIFTY": search_symbol = "Nifty Fin Service"
 
             token_instrument = self.client.get_instrument_by_symbol("NSE", search_symbol)
             if not token_instrument:
-                # Try search if direct get fails
-                logger.warning(f"Stocko Data: Direct instrument lookup failed for {search_symbol}, searching...")
-                matches = self.client.search_instruments("NSE", search_symbol)
-                if matches:
-                    token_instrument = matches[0]
-                else:
-                    logger.error(f"Stocko Data: Could not find instrument for {search_symbol}")
-                    return []
+                logger.error(f"Stocko Data: Could not find instrument for {search_symbol}")
+                return []
 
             spot_data = self.fetch_index_data(symbol)
             spot_price = spot_data['last_price'] if spot_data else None
@@ -78,8 +77,9 @@ class StockoData:
                 logger.error("Could not get spot price to center option chain.")
                 return []
 
-            strikes_count = int(limit / 10)
-            oc_res = self.client.get_optionchain(token_instrument, strikes_count, int(spot_price))
+            # strikes parameter as used in STOCKOmain.py
+            # If user wants 30 strike price for call and put, we use 30.
+            oc_res = self.client.get_optionchain(token_instrument, limit, int(spot_price))
 
             if oc_res.get("status") != "success" or not oc_res.get("result"):
                 logger.error(f"Option chain fetch failed: {oc_res}")
@@ -91,15 +91,18 @@ class StockoData:
             chain_data = []
             for strike in data['strikes']:
                 strike_price = float(strike['strike_price'])
-                for opt_type in ['call_option', 'put_option']:
-                    opt = strike[opt_type]
+                # STOCKOmain.py extraction logic: call_option and put_option fields
+                for opt_type_key in ['call_option', 'put_option']:
+                    opt = strike[opt_type_key]
+                    opt_type = "CE" if opt_type_key == 'call_option' else "PE"
+
                     chain_data.append({
                         "timestamp": pd.Timestamp.now(),
                         "symbol": symbol,
                         "expiry_date": expiry_date,
                         "strike": strike_price,
-                        "option_type": "CE" if opt_type == 'call_option' else "PE",
-                        "ltp": float(opt.get("ltp") or opt.get("close_price") or 0),
+                        "option_type": opt_type,
+                        "ltp": float(opt.get("close_price") or opt.get("ltp") or 0),
                         "token": opt.get("token"),
                         "trading_symbol": opt.get("trading_symbol"),
                         "bid": 0.0,
