@@ -957,17 +957,11 @@ class AlphaTrade(Connect):
 
     def set_access_token(self, access_token):
         """Sets the access token and updates authorization headers."""
-        super().set_access_token(access_token)
+        # Avoid calling super().set_access_token if it causes recursion
+        # In stocko/connect.py, set_access_token simply sets self.access_token
+        self.access_token = access_token
         self.__access_token = access_token
         self.__headers['Authorization'] = f'Bearer {access_token}'
-
-    @property
-    def access_token(self):
-        return self.__access_token
-
-    @access_token.setter
-    def access_token(self, value):
-        self.set_access_token(value)
 
     def get_all_subscriptions(self):
         """ get the all subscribed instruments """
