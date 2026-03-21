@@ -359,22 +359,26 @@ class OptionsManager:
         conn.commit(); conn.close()
         return strat, conf_score
 
-    def fetch_from_stocko(self, expiry_count=4):
+    def fetch_from_stocko(self, symbol="NIFTY", expiry_count=4, spot_price_hint=None):
         """Fetches option chain data from Stocko API for multiple expiries."""
         if not self.stocko_auth:
             logger.debug("Stocko Fetch: No auth instance provided.")
             return None
 
-        if not self.stocko_auth.client:
-            logger.error("Stocko Fetch: Client not initialized. Authentication required.")
-            return None
+        # Live validation check
+        if not self.stocko_auth.client or not self.stocko_auth._validate_token():
+            logger.info("Stocko Fetch: Re-authenticating...")
+            if not self.stocko_auth.login():
+                logger.error("Stocko Fetch: Authentication failed.")
+                return None
 
         try:
             from stocko_data import StockoData
             sd = StockoData(self.stocko_auth)
-            # Fetch a large chain to cover multiple expiries
-            logger.info("Stocko Fetch: Retrieving high-coverage chain for multiple expiries...")
-            chain = sd.fetch_option_chain("NIFTY", limit=600)
+            # Fetch a large chain to cover multiple expiries. 30 limit for multiple expiries is too small.
+            # Using 60 (30 above, 30 below) for Nifty 50
+            logger.info(f"Stocko Fetch: Retrieving chain for {symbol} (Hint: {spot_price_hint})...")
+            chain = sd.fetch_option_chain(symbol, limit=60, spot_price=spot_price_hint)
             if not chain:
                 logger.warning("Stocko Fetch: API returned empty option chain.")
                 return None
@@ -449,21 +453,17 @@ class OptionsManager:
             logger.error(f"DB Fetch: Exception occurred: {str(e)}")
             return None
 
-    def update(self, spot_price_hint=None):
+    def update(self, symbol="NIFTY", spot_price_hint=None):
         """Updates the database with live option chain data. Prioritizes Stocko if available."""
-        logger.info("Options Update: Initiating update cycle...")
+        logger.info(f"Options Update: Initiating update cycle for {symbol} (Hint: {spot_price_hint})...")
         self.init_db()
 
         df, spot, expiry = None, None, None
 
         # Priority 1: Direct Stocko API call (if auth provided)
         if self.stocko_auth:
-            # Check login status explicitly for logging
-            login_status = "Authenticated" if self.stocko_auth.access_token else "Not Authenticated"
-            logger.info(f"Options Update: Stocko API Status: {login_status}")
-
-            logger.info("Options Update: Attempting direct Stocko API fetch...")
-            res = self.fetch_from_stocko()
+            logger.info(f"Options Update: Attempting direct Stocko API fetch for {symbol}...")
+            res = self.fetch_from_stocko(symbol=symbol, spot_price_hint=spot_price_hint)
             if res:
                 df, spot, expiry = res
                 logger.info("Options Update: Success via Stocko API.")

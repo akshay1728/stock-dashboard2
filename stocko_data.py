@@ -1,6 +1,9 @@
 import logging
 import pandas as pd
+import yfinance as yf
 from config import Config
+from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -17,102 +20,172 @@ class StockoData:
             if not self.client:
                 logger.error("Stocko client not initialized.")
                 return None
-            search_res = self.client.search_scrip({'key': symbol})
-            if search_res.get("error", {}).get("code") != 0:
-                logger.error(f"Error searching for {symbol}: {search_res}")
+
+            search_symbol = symbol
+            if symbol == "NIFTY": search_symbol = "Nifty 50"
+            elif symbol == "BANKNIFTY": search_symbol = "Nifty Bank"
+            elif symbol == "FINNIFTY": search_symbol = "Nifty Fin Service"
+
+            instrument = self.client.get_instrument_by_symbol('NSE', search_symbol)
+            if not instrument:
+                logger.error(f"Could not find index instrument for {search_symbol}")
                 return None
 
-            index_token = None
-            for item in search_res.get("result", []):
-                if item.get("symbol") == symbol and item.get("exchange") == "NSE":
-                    index_token = item.get("token")
-                    break
+            price_res = self.client.get_scrip_info(instrument)
 
-            if not index_token:
-                logger.error(f"Could not find index token for {symbol}")
+            # Flexible success check: handles both {"status": "success"} and {"error": {"code": 0}} formats
+            is_success = price_res.get("status") == "success" or \
+                         (isinstance(price_res.get("error"), dict) and price_res["error"].get("code") == 0)
+
+            if not is_success:
+                logger.error(f"Error fetching scrip info for {search_symbol}: {price_res}")
                 return None
 
-            price_res = self.client.fetch_scrip_price({'exchange': 'NSE', 'instrument_token': index_token})
             result = price_res.get("result", {})
+            ltp = result.get("ltp") or result.get("last_traded_price") or result.get("close_price") or 0
+            ltp = float(ltp)
+
+            # Fallback to yfinance if Stocko returns 0 (e.g. market closed or API issue)
+            if ltp <= 0:
+                logger.warning(f"Stocko returned 0 for {search_symbol}. Falling back to yfinance...")
+                try:
+                    yf_map = {"Nifty 50": "^NSEI", "Nifty Bank": "^NSEBANK", "Nifty Fin Service": "^CNXFIN"}
+                    ticker = yf_map.get(search_symbol)
+                    if ticker:
+                        data = yf.Ticker(ticker).fast_info
+                        ltp = data['last_price']
+                        logger.info(f"yfinance fallback success for {search_symbol}: {ltp}")
+                except Exception as yfe:
+                    logger.error(f"yfinance fallback failed: {yfe}")
+
             return {
                 "symbol": symbol,
                 "timestamp": pd.Timestamp.now(),
-                "open": result.get("open"),
-                "high": result.get("high"),
-                "low": result.get("low"),
-                "close": result.get("close"),
-                "last_price": result.get("ltp") or result.get("last_traded_price")
+                "open": float(result.get("open") or 0),
+                "high": float(result.get("high") or 0),
+                "low": float(result.get("low") or 0),
+                "close": float(result.get("close") or 0),
+                "last_price": float(ltp)
             }
         except Exception as e:
             logger.error(f"Error fetching index data: {e}")
             return None
 
-    def fetch_option_chain(self, symbol="NIFTY", limit=600):
+    def fetch_option_chain(self, symbol="NIFTY", limit=30, spot_price=None):
+        """
+        Fetches the live option chain as per user's request (30 strikes near spot)
+        and matches extractor logic in STOCKOmain.py
+        """
         try:
             if not self.client:
-                logger.error("Stocko Fetch: Client not initialized. Cannot fetch option chain.")
+                logger.error("Stocko Data: Client not initialized.")
                 return []
 
-            # Search for the underlying index or instruments
-            search_res = self.client.search_scrip({'key': symbol})
-            if search_res.get("error", {}).get("code") != 0:
-                logger.error(f"Stocko Fetch: Search failed. Error: {search_res.get('error')}")
+            # Resolve index instrument
+            search_symbol = symbol
+            if symbol == "NIFTY": search_symbol = "Nifty 50"
+            elif symbol == "BANKNIFTY": search_symbol = "Nifty Bank"
+            elif symbol == "FINNIFTY": search_symbol = "Nifty Fin Service"
+
+            token_instrument = self.client.get_instrument_by_symbol("NSE", search_symbol)
+            if not token_instrument:
+                logger.error(f"Stocko Data: Could not find instrument for {search_symbol}")
                 return []
-
-            all_results = search_res.get("result", [])
-
-            # Refine filtering:
-            # 1. Must be NFO (Derivatives)
-            # 2. Must start with the symbol (e.g. NIFTY...) to avoid FINNIFTY or BANKNIFTY
-            # 3. Must have CE or PE suffix
-            options = [item for item in all_results
-                      if item.get("exchange") == "NFO" and
-                      item.get("trading_symbol", "").startswith(symbol) and
-                      any(suffix in item.get("trading_symbol", "") for suffix in ["CE", "PE"])]
-
-            if not options:
-                logger.warning(f"No options found for {symbol}")
-                return []
-
-            spot_data = self.fetch_index_data(symbol)
-            spot_price = spot_data['last_price'] if spot_data else None
 
             if not spot_price:
-                logger.error("Could not get spot price to filter option chain.")
+                spot_data = self.fetch_index_data(symbol)
+                spot_price = spot_data['last_price'] if spot_data else None
+
+            if not spot_price or spot_price <= 0:
+                logger.error(f"Could not get valid spot price to center option chain (Value: {spot_price}).")
                 return []
 
-            # Multi-threaded fetching of detailed scrip info to speed up chain collection
-            from concurrent.futures import ThreadPoolExecutor
+            # strikes parameter as used in STOCKOmain.py
+            # If user wants 30 strike price for call and put, we use 30.
+            oc_res = self.client.get_optionchain(token_instrument, limit, int(spot_price))
 
-            def get_scrip_info(opt):
-                try:
-                    res_info = self.client.fetch_scripinfo({'exchange': 'NFO', 'instrument_token': opt.get("token")})
-                    res = res_info.get("result", {})
-                    if not res: return None
+            if oc_res.get("status") != "success" or not oc_res.get("result"):
+                logger.error(f"Option chain fetch failed: {oc_res}")
+                return []
 
-                    return {
+            data = oc_res['result'][0]
+            expiry_date = data['expiry_date']
+
+            chain_data = []
+            for strike in data['strikes']:
+                strike_price = float(strike['strike_price'])
+                # STOCKOmain.py extraction logic: call_option and put_option fields
+                for opt_type_key in ['call_option', 'put_option']:
+                    opt = strike[opt_type_key]
+                    opt_type = "CE" if opt_type_key == 'call_option' else "PE"
+
+                    chain_data.append({
                         "timestamp": pd.Timestamp.now(),
                         "symbol": symbol,
-                        "expiry_date": res.get("expiry_string") or res.get("expiry"),
-                        "strike": float(res.get("strike", 0)),
-                        "option_type": res.get("option_type"),
-                        "ltp": float(res.get("ltp") or res.get("last_traded_price") or 0),
-                        "bid": float(res.get("best_bid_price") or res.get("bidPrice") or 0),
-                        "ask": float(res.get("best_ask_price") or res.get("askPrice") or 0),
-                        "volume": int(res.get("trade_volume") or res.get("volume") or 0),
-                        "open_interest": int(res.get("open_interest") or res.get("currentOpenInterest") or 0),
-                        "oi_change": int(res.get("change_in_oi") or 0),
-                        "implied_volatility": float(res.get("implied_volatility") or 0),
+                        "expiry_date": expiry_date,
+                        "strike": strike_price,
+                        "option_type": opt_type,
+                        "ltp": float(opt.get("close_price") or opt.get("ltp") or 0),
+                        "token": opt.get("token"),
+                        "trading_symbol": opt.get("trading_symbol"),
+                        "bid": 0.0,
+                        "ask": 0.0,
+                        "volume": 0,
+                        "open_interest": 0,
+                        "oi_change": 0,
+                        "implied_volatility": 0.0,
                         "underlying_price": float(spot_price)
-                    }
-                except:
-                    return None
+                    })
 
-            with ThreadPoolExecutor(max_workers=10) as executor:
-                results = list(executor.map(get_scrip_info, options[:limit]))
+            # Fetch detailed info for near-the-money strikes (e.g., within 1000 points for better coverage)
+            # Use a broader range to ensure we have enough data for Greeks/Intelligence
+            near_strikes = [d for d in chain_data if abs(d['strike'] - spot_price) < 1000]
 
-            chain_data = [r for r in results if r is not None]
-            logger.info(f"Fetched {len(chain_data)} option records from Stocko API.")
+            def update_with_detailed_info(opt_record):
+                try:
+                    from stocko.stockoapi import Instrument
+                    instr = Instrument(
+                        exchange='NFO',
+                        token=int(opt_record.get('token')),
+                        symbol=opt_record.get('trading_symbol'),
+                        name='',
+                        expiry=expiry_date,
+                        lot_size=0
+                    )
+                    res = self.client.get_scrip_info(instr)
+                    if isinstance(res, dict) and res.get("status") == "success":
+                        detail = res.get("result", {})
+
+                        ltp = float(detail.get("ltp") or detail.get("last_traded_price") or opt_record['ltp'])
+                        oi = int(detail.get("current_oi") or detail.get("open_interest") or 0)
+                        prev_oi = int(detail.get("initial_oi") or 0)
+                        # Estimate oi_change if not explicitly provided
+                        oi_change = detail.get("oi_change") or detail.get("change_in_oi")
+                        if oi_change is None and prev_oi > 0:
+                            oi_change = oi - prev_oi
+
+                        opt_record.update({
+                            "ltp": ltp,
+                            "open_interest": oi,
+                            "oi_change": int(oi_change or 0),
+                            "implied_volatility": float(detail.get("implied_volatility") or detail.get("iv") or 0),
+                            "volume": int(detail.get("volume") or detail.get("trade_volume") or 0)
+                        })
+                except Exception as e:
+                    logger.debug(f"Error fetching detailed info for {opt_record.get('trading_symbol')}: {e}")
+
+            if near_strikes:
+                logger.info(f"Stocko Data: Fetching detailed info for {len(near_strikes)} strikes near spot...")
+                with ThreadPoolExecutor(max_workers=15) as executor:
+                    list(executor.map(update_with_detailed_info, near_strikes))
+
+            logger.info(f"Fetched {len(chain_data)} option records from Stocko API (Detailed info for {len(near_strikes)}).")
+
+            # Ensure we have at least some data. If all LTPs are 0, something is wrong.
+            valid_ltps = [d['ltp'] for d in chain_data if d['ltp'] > 0]
+            if not valid_ltps:
+                logger.warning("Stocko Data: All fetched LTPs are 0. API might be returning empty prices.")
+
             return chain_data
 
         except Exception as e:

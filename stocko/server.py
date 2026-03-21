@@ -1,0 +1,62 @@
+import os
+import threading
+import webbrowser
+from requests_oauthlib import OAuth2Session
+from flask import Flask, request, redirect
+import logging
+
+logger = logging.getLogger("stocko.server")
+os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
+
+class Server:
+    # to make oauth2 work with http;
+    global_access_token = ""
+    def __init__(self, client_id, client_secret, redirect_url, base_url):
+        self.client_id = client_id
+        self.web_url = base_url
+        self.client_secret = client_secret
+        self.redirect_uri = redirect_url
+        self.authorization_base_url = f'{self.web_url}/oauth2/auth'
+        self.token_url = f'{self.web_url}/oauth2/token'
+        self.scope = 'orders holdings'
+        self.app = Flask(__name__)
+        self.access_token = ""
+
+    def create_app(self):
+        app = self.app
+        web_url = self.web_url
+        client_id = self.client_id
+        redirect_uri = self.redirect_uri
+        scope = self.scope
+        authorization_base_url = self.authorization_base_url
+        token_url = self.token_url
+        client_secret = self.client_secret
+
+        self.state = None
+
+        @app.route('/getcode')
+        def get_authorization_url():
+            oauth = OAuth2Session(client_id, redirect_uri=redirect_uri, scope=scope)
+            authorization_url, state = oauth.authorization_url(authorization_base_url, access_type="authorization_code")
+            self.state = state
+            print(f'Authorization URL: {authorization_url}')
+            return redirect(authorization_url)
+
+        @app.route('/')
+        def callback():
+            try:
+                logger.info(f"Inside callback function. URL: {request.url}")
+                oauth = OAuth2Session(client_id, state=self.state, redirect_uri=redirect_uri, scope=scope)
+                token = oauth.fetch_token(token_url, authorization_response=request.url, client_secret=client_secret)
+
+                self.access_token = token['access_token']
+                logger.info("Access token acquired successfully!")
+                return 'see terminal for logs - SUCCESS'
+            except Exception as e:
+                logger.error(f"Error in callback: {e}")
+                return f'see terminal for logs - ERROR: {e}'
+
+        return app
+
+    def fetch_access_token(self):
+        return self.access_token

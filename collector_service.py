@@ -59,7 +59,8 @@ class CollectorService:
                     logger.warning("Collector: Failed to fetch index price.")
 
                 # Option Chain
-                chain_data = data_fetcher.fetch_option_chain(Config.SYMBOL, limit=150)
+                spot_price = index_data['last_price'] if index_data else None
+                chain_data = data_fetcher.fetch_option_chain(Config.SYMBOL, limit=150, spot_price=spot_price)
                 if chain_data and not Config.DRY_RUN:
                     self.db.save_option_chain(chain_data)
                     logger.info(f"Collector: Successfully archived {len(chain_data)} option records.")

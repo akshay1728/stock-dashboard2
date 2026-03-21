@@ -11,9 +11,10 @@ class Config:
     API_KEY = os.getenv("STOCKO_API_KEY")
     API_SECRET = os.getenv("STOCKO_API_SECRET")
     REDIRECT_URL = os.getenv("STOCKO_REDIRECT_URL", "http://127.0.0.1:65015/")
-    BASE_URL = os.getenv("STOCKO_BASE_URL", "https://primusapi.tradelab.in")
+    BASE_URL = os.getenv("STOCKO_BASE_URL", "https://api.stocko.in")
     CLIENT_CODE = os.getenv("STOCKO_CLIENT_CODE")
     PASSWORD = os.getenv("STOCKO_PASSWORD")
+    TOTP_SECRET = os.getenv("STOCKO_TOTP_SECRET")
 
     SYMBOL = os.getenv("COLLECTION_SYMBOL", "NIFTY")
     FETCH_INTERVAL = int(os.getenv("FETCH_INTERVAL_SECONDS", 60))
@@ -67,7 +68,7 @@ class Config:
     @classmethod
     def validate(cls):
         missing = []
-        for attr in ["API_KEY", "API_SECRET", "CLIENT_CODE", "PASSWORD"]:
+        for attr in ["API_KEY", "API_SECRET", "CLIENT_CODE", "PASSWORD", "TOTP_SECRET"]:
             if not getattr(cls, attr):
                 missing.append(attr)
         return missing
